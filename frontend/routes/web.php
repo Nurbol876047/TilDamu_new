@@ -1,0 +1,42 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Controllers\AuthController;
+use App\Controllers\CourseController;
+use App\Controllers\DiagnosisController;
+use App\Controllers\HomeController;
+use App\Controllers\RecommendationController;
+use App\Controllers\ResultController;
+use App\Controllers\TherapistController;
+app()->router()->get('/login', [AuthController::class, 'showLogin']);
+app()->router()->post('/login', [AuthController::class, 'login']);
+app()->router()->get('/register', [AuthController::class, 'showRegister']);
+app()->router()->post('/register', [AuthController::class, 'register']);
+app()->router()->get('/logout', [AuthController::class, 'logout']);
+app()->router()->get('/', [HomeController::class, 'index']);
+app()->router()->get('/diagnosis', [DiagnosisController::class, 'index']);
+app()->router()->get('/results', [ResultController::class, 'show']);
+app()->router()->get('/recommendations', [RecommendationController::class, 'index']);
+app()->router()->get('/therapist', [TherapistController::class, 'index']);
+app()->router()->get('/courses', [CourseController::class, 'index']);
+app()->router()->get('/dataset', [DiagnosisController::class, 'dataset']);
+app()->router()->get('/dataset-history', [DiagnosisController::class, 'datasetHistory']);
+app()->router()->get('/course-create', [CourseController::class, 'create']);
+app()->router()->post('/course-store', [CourseController::class, 'store']);
+
+app()->router()->get('/index.php', [HomeController::class, 'index']);
+app()->router()->get('/login.php', [AuthController::class, 'showLogin']);
+app()->router()->post('/login.php', [AuthController::class, 'login']);
+app()->router()->get('/register.php', [AuthController::class, 'showRegister']);
+app()->router()->post('/register.php', [AuthController::class, 'register']);
+app()->router()->get('/logout.php', [AuthController::class, 'logout']);
+app()->router()->get('/diagnosis.php', [DiagnosisController::class, 'index']);
+app()->router()->get('/results.php', [ResultController::class, 'show']);
+app()->router()->get('/recommendations.php', [RecommendationController::class, 'index']);
+app()->router()->get('/therapist.php', [TherapistController::class, 'index']);
+app()->router()->get('/courses.php', [CourseController::class, 'index']);
+app()->router()->get('/dataset.php', [DiagnosisController::class, 'dataset']);
+app()->router()->get('/dataset-history.php', [DiagnosisController::class, 'datasetHistory']);
+app()->router()->get('/course-create.php', [CourseController::class, 'create']);
+app()->router()->post('/course-store.php', [CourseController::class, 'store']);

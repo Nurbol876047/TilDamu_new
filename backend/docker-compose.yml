@@ -1,0 +1,44 @@
+services:
+  backend:
+    build: .
+    container_name: ai-logoped-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/speech_ai
+      REDIS_URL: redis://redis:6379/0
+      CACHE_TTL_SECONDS: 300
+      AUDIO_CACHE_TTL_SECONDS: 3600
+      CACHE_KEY_PREFIX: ai-logoped
+      UPLOAD_DIR: uploads/audio
+      STT_PROVIDER: mock
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-logoped-postgres
+    environment:
+      POSTGRES_DB: speech_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d speech_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-logoped-redis
+
+volumes:
+  postgres_data:
