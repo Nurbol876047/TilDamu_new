@@ -14,11 +14,11 @@ $words = [
     ['phoneme' => 'Ш', 'ru' => 'ягнёнок', 'kk' => 'қошақан', 'en' => 'lamb', 'image' => '/public/assets/img/lamb.png'],
     ['phoneme' => 'Ж', 'ru' => 'флаг', 'kk' => 'жалау', 'en' => 'flag', 'image' => '/public/assets/img/flag.png'],
     ['phoneme' => 'Ж', 'ru' => 'виноград', 'kk' => 'жүзім', 'en' => 'grapes', 'image' => '/public/assets/img/grapes.png'],
-    ['phoneme' => 'Қ', 'ru' => 'заяц', 'kk' => 'қоян', 'en' => 'rabbit', 'image' => 'https://cdn-icons-png.flaticon.com/512/2663/2663067.png'],
-    ['phoneme' => 'Қ', 'ru' => 'лебедь', 'kk' => 'аққу', 'en' => 'swan', 'image' => 'https://cdn-icons-png.flaticon.com/512/822/822143.png'],
-    ['phoneme' => 'Ғ', 'ru' => 'космос', 'kk' => 'ғарыш', 'en' => 'space', 'image' => 'https://cdn-icons-png.flaticon.com/512/3590/3590306.png'],
-    ['phoneme' => 'З', 'ru' => 'закон', 'kk' => 'заң', 'en' => 'law', 'image' => 'https://cdn-icons-png.flaticon.com/512/927/927295.png'],
-    ['phoneme' => 'Ч/Ш', 'ru' => 'чемпион', 'kk' => 'чемпион', 'en' => 'champion', 'image' => 'https://cdn-icons-png.flaticon.com/512/3112/3112946.png'],
+    ['phoneme' => 'Қ', 'ru' => 'заяц', 'kk' => 'қоян', 'en' => 'rabbit', 'image' => '/public/assets/img/rabbit.png'],
+    ['phoneme' => 'Қ', 'ru' => 'лебедь', 'kk' => 'аққу', 'en' => 'swan', 'image' => '/public/assets/img/swan.png'],
+    ['phoneme' => 'Ғ', 'ru' => 'космос', 'kk' => 'ғарыш', 'en' => 'space', 'image' => '/public/assets/img/space.png'],
+    ['phoneme' => 'З', 'ru' => 'закон', 'kk' => 'заң', 'en' => 'law', 'image' => '/public/assets/img/law.png'],
+    ['phoneme' => 'Ч/Ш', 'ru' => 'чемпион', 'kk' => 'чемпион', 'en' => 'champion', 'image' => '/public/assets/img/champion.png'],
     ['ru' => 'солнце', 'kk' => 'күн', 'en' => 'sun', 'image' => '/public/assets/img/sun.png'],
     ['ru' => 'рыба', 'kk' => 'балық', 'en' => 'fish', 'image' => '/public/assets/img/fish.png'],
     ['ru' => 'шарик', 'kk' => 'шар', 'en' => 'ball', 'image' => '/public/assets/img/ball.png'],
@@ -26,6 +26,8 @@ $words = [
     ['ru' => 'жук', 'kk' => 'қоңыз', 'en' => 'beetle', 'image' => '/public/assets/img/beetle.png'],
     ['ru' => 'чашка', 'kk' => 'кесе', 'en' => 'cup', 'image' => '/public/assets/img/cup.png'],
 ];
+
+$words = array_slice($words, 0, 15);
 
 $currentLang ??= function_exists('app_locale') ? app_locale() : 'ru';
 
@@ -88,6 +90,7 @@ require __DIR__ . '/../layouts/header.php';
                 </label>
                 <div class="relative group">
                     <select id="childGender" class="w-full px-5 py-4 bg-blue-50/50 border border-blue-100 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-blue-soft/15 transition-all hover:bg-white focus:bg-white appearance-none cursor-pointer text-gray-700 shadow-sm group-hover:shadow-md">
+                        <option value="" disabled selected class="bg-white">Выберите пол</option>
                         <option value="male" class="bg-white"><?= e(tr('dataset_page.male', 'Мужской')) ?></option>
                         <option value="female" class="bg-white"><?= e(tr('dataset_page.female', 'Женский')) ?></option>
                     </select>
@@ -120,6 +123,24 @@ require __DIR__ . '/../layouts/header.php';
 
     <div class="border-0 shadow-lg rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, #F0F9FF, #ffffff);">
         <div class="p-8 md:p-10 space-y-8">
+            <div id="participantNotice" class="rounded-2xl border border-orange-100 bg-orange-50 px-5 py-4 text-sm font-semibold text-orange-700 text-center">
+                Заполните данные ребёнка полностью, затем начните запись.
+            </div>
+
+            <div class="rounded-2xl bg-white/85 border border-blue-100 p-5 shadow-sm space-y-4">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-widest text-gray-500">Прогресс записи</p>
+                        <p id="wordProgressMeta" class="text-sm font-semibold text-gray-700 mt-1">Текущее слово: мама · попытка 1 из 3</p>
+                    </div>
+                    <span id="wordProgressCount" class="inline-flex items-center justify-center px-3 py-1.5 rounded-full bg-blue-50 text-blue-soft text-sm font-bold">0/15 слов</span>
+                </div>
+                <div class="h-3 rounded-full bg-blue-50 overflow-hidden">
+                    <div id="wordProgressBar" class="h-full rounded-full bg-blue-soft transition-all duration-500 ease-out" style="width: 0%"></div>
+                </div>
+                <div id="wordProgressList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"></div>
+            </div>
+
             <div class="flex items-center justify-center gap-3 text-sm font-medium text-gray-600">
                 <span id="statusDot" class="w-3 h-3 rounded-full bg-green-500"></span>
                 <span id="statusText"><?= e(tr('dataset_page.ready', 'Готов к записи')) ?></span>
@@ -132,7 +153,7 @@ require __DIR__ . '/../layouts/header.php';
             <div class="text-center space-y-6">
                 <div class="flex justify-center">
                     <div class="w-72 h-72 rounded-3xl overflow-hidden shadow-2xl bg-white p-3 border border-blue-50 transform hover:scale-105 transition-transform duration-500">
-                        <img id="wordImage" src="<?= e($words[0]['image']) ?>" alt="Word Visual" class="w-full h-full object-contain transition-opacity duration-300">
+                        <img id="wordImage" src="<?= e($words[0]['image']) ?>" alt="Word Visual" class="w-full h-full object-contain transition-opacity duration-300" onerror="this.src='/public/assets/img/mother.png'">
                     </div>
                 </div>
 
@@ -206,7 +227,7 @@ require __DIR__ . '/../layouts/header.php';
         </div>
     </div>
 
-    <div class="grid lg:grid-cols-2 gap-6">
+    <div class="space-y-10 pt-12">
         <div id="historyPanel" class="hidden border-0 shadow-xl bg-white/80 backdrop-blur-md rounded-3xl p-6 space-y-4 border border-white/20">
             <div id="historyEmpty" class="hidden"></div>
             <div id="historyList" class="space-y-3"></div>
@@ -290,6 +311,7 @@ const API = {
 const T = {$tJson};
 
 const MAX_ATTEMPTS_PER_WORD = 3;
+const WORD_TOTAL = W.length;
 let wi = 0;
 let currentAttempt = 1;
 let rec = false;
@@ -330,6 +352,10 @@ function parseAttemptNumber(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizedWord(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
 function currentWordText() {
     return W[wi] ? W[wi].ru : '';
 }
@@ -337,8 +363,22 @@ function currentWordText() {
 function attemptCountForWord(wordText = currentWordText()) {
     return sessionHistory.filter((item) => {
         const analysis = item.analysis || {};
-        return String(analysis.expected_word || item.word || '').toLowerCase() === String(wordText || '').toLowerCase();
+        return normalizedWord(analysis.expected_word || item.word || '') === normalizedWord(wordText);
     }).length;
+}
+
+function completedWordCount() {
+    return W.filter((word) => attemptCountForWord(word.ru) >= MAX_ATTEMPTS_PER_WORD).length;
+}
+
+function nextIncompleteWordIndex(startIndex = 0) {
+    for (let i = Math.max(0, startIndex); i < W.length; i++) {
+        if (attemptCountForWord(W[i].ru) < MAX_ATTEMPTS_PER_WORD) return i;
+    }
+    for (let i = 0; i < Math.max(0, startIndex); i++) {
+        if (attemptCountForWord(W[i].ru) < MAX_ATTEMPTS_PER_WORD) return i;
+    }
+    return -1;
 }
 
 function updateAttemptText() {
@@ -347,10 +387,71 @@ function updateAttemptText() {
     el.textContent = 'Попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD;
 }
 
+function renderWordProgress() {
+    const completed = completedWordCount();
+    const percent = WORD_TOTAL ? Math.round((completed / WORD_TOTAL) * 100) : 0;
+    const count = $('wordProgressCount');
+    const bar = $('wordProgressBar');
+    const meta = $('wordProgressMeta');
+    const list = $('wordProgressList');
+
+    if (count) count.textContent = completed + '/' + WORD_TOTAL + ' слов';
+    if (bar) bar.style.width = percent + '%';
+    if (meta) {
+        meta.textContent = completed >= WORD_TOTAL
+            ? 'Все слова записаны по 3 раза'
+            : 'Текущее слово: ' + currentWordText() + ' · попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD;
+    }
+    if (!list) return;
+
+    list.innerHTML = W.map((word, index) => {
+        const attempts = Math.min(MAX_ATTEMPTS_PER_WORD, attemptCountForWord(word.ru));
+        const isCurrent = index === wi && attempts < MAX_ATTEMPTS_PER_WORD;
+        const isDone = attempts >= MAX_ATTEMPTS_PER_WORD;
+        const classes = isDone
+            ? 'bg-mint/25 border-mint/30 text-mint-dark'
+            : (isCurrent ? 'bg-blue-50 border-blue-soft/40 text-blue-700 ring-2 ring-blue-soft/15' : 'bg-white border-gray-100 text-gray-500');
+        return '<div class="rounded-2xl border px-3 py-2 text-xs font-bold transition-all ' + classes + '">'
+            + '<div class="flex items-center justify-between gap-2">'
+            + '<span class="truncate">' + esc(index + 1) + '. ' + esc(word.ru) + '</span>'
+            + '<span>' + attempts + '/3</span>'
+            + '</div>'
+            + '</div>';
+    }).join('');
+}
+
 function syncAttemptFromHistory() {
     const nextAttempt = attemptCountForWord() + 1;
     currentAttempt = Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, nextAttempt));
     updateAttemptText();
+    renderWordProgress();
+}
+
+function participantValidation() {
+    const name = $('childName').value.trim();
+    const age = Number($('childAge').value);
+    const externalId = $('childId').value.trim();
+    const gender = $('childGender').value.trim();
+    const disorder = $('disorderType').value.trim();
+
+    if (!name || !Number.isFinite(age) || age < 2 || age > 16 || !externalId || !gender || !disorder) {
+        return {
+            ok: false,
+            message: 'Заполните данные ребёнка полностью: имя, возраст, ID, пол и тип нарушения.'
+        };
+    }
+
+    return { ok: true, message: '' };
+}
+
+function updateParticipantState() {
+    const validation = participantValidation();
+    const notice = $('participantNotice');
+    if (notice) {
+        notice.textContent = validation.ok ? '' : validation.message;
+        notice.classList.toggle('hidden', validation.ok);
+    }
+    return validation;
 }
 
 function renderHistory() {
@@ -401,6 +502,8 @@ function resetDatasetSession() {
     wi = 0;
     currentAttempt = 1;
     renderHistory();
+    renderWordProgress();
+    updateParticipantState();
     show();
 
     const link = $('openReportLink');
@@ -418,7 +521,10 @@ function bindParticipantFields() {
         const el = $(id);
         if (!el) return;
         const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
-        el.addEventListener(eventName, resetDatasetSession);
+        el.addEventListener(eventName, () => {
+            updateParticipantState();
+            resetDatasetSession();
+        });
     });
 }
 
@@ -442,6 +548,8 @@ async function loadBackendHistory() {
             analysis: record.analysis_result
         }));
     renderHistory();
+    const nextIndex = nextIncompleteWordIndex(0);
+    wi = nextIndex === -1 ? Math.max(0, W.length - 1) : nextIndex;
     syncAttemptFromHistory();
 }
 
@@ -521,6 +629,7 @@ function show() {
     $('currentWordAlt').textContent = '(' + alt + ')';
     $('wordResult').classList.add('hidden');
     updateAttemptText();
+    renderWordProgress();
 }
 
 function stat(mode, title, hint) {
@@ -622,16 +731,20 @@ function childAgeGroup() {
 
 async function ses() {
     if (sesOk) return;
+    const validation = updateParticipantState();
+    if (!validation.ok) {
+        throw new Error(validation.message);
+    }
 
     const child = await apiJson(API.resolveChild, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            full_name: $('childName').value.trim() || 'Ребенок',
+            full_name: $('childName').value.trim(),
             age: childAgeGroup(),
-            parent_name: $('childId').value.trim() || 'Dataset',
-            gender: $('childGender').value || null,
-            disorder_type: $('disorderType').value.trim() || 'дислалия'
+            parent_name: $('childId').value.trim(),
+            gender: $('childGender').value,
+            disorder_type: $('disorderType').value.trim()
         })
     });
 
@@ -640,6 +753,7 @@ async function ses() {
 
     sesOk = true;
     await loadBackendHistory();
+    show();
     try {
         await refreshReport();
     } catch (e) {
@@ -665,6 +779,24 @@ async function handleRecord() {
     if (rec && mr && mr.state === 'recording') {
         mr.stop();
         return;
+    }
+
+    const validation = updateParticipantState();
+    if (!validation.ok) {
+        err(validation.message);
+        stat('ready', 'Заполните данные ребёнка', validation.message);
+        return;
+    }
+
+    const incompleteIndex = nextIncompleteWordIndex(wi);
+    if (incompleteIndex === -1) {
+        stat('ready', 'Серия завершена', 'Все 15 слов записаны по 3 раза.');
+        renderWordProgress();
+        return;
+    }
+    if (incompleteIndex !== wi && attemptCountForWord() >= MAX_ATTEMPTS_PER_WORD) {
+        wi = incompleteIndex;
+        show();
     }
 
     if (!window.isSecureContext) {
@@ -797,7 +929,21 @@ async function upload() {
         const d = await apiJson(API.uploadAudio, { method: 'POST', body: fd });
         await done(d);
     } catch (e) {
-        err('Ошибка: ' + (e && e.message ? e.message : 'неизвестная ошибка'));
+        const message = e && e.message ? e.message : 'неизвестная ошибка';
+        if (message.includes('3 голосовые записи')) {
+            try {
+                await loadBackendHistory();
+                const nextIndex = nextIncompleteWordIndex(wi + 1);
+                if (nextIndex !== -1) {
+                    wi = nextIndex;
+                    currentAttempt = 1;
+                    show();
+                }
+            } catch (refreshError) {
+                console.warn('History refresh failed after duplicate attempt', refreshError);
+            }
+        }
+        err('Ошибка: ' + message);
         busy = false;
         stat('ready', 'Готов к записи', 'Попробуйте ещё раз');
     } finally {
@@ -818,6 +964,7 @@ async function done(a) {
         analysis
     });
     renderHistory();
+    renderWordProgress();
     try {
         await refreshReport();
     } catch (e) {
@@ -831,23 +978,25 @@ async function done(a) {
     if (completedAttempt < MAX_ATTEMPTS_PER_WORD) {
         currentAttempt = completedAttempt + 1;
         updateAttemptText();
+        renderWordProgress();
         stat('ready', T.ready_status, 'Запишите это же слово еще раз: попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD + '.');
         return;
     }
 
-    if (wi < W.length - 1) {
+    const nextIndex = nextIncompleteWordIndex(wi + 1);
+    if (nextIndex !== -1) {
         stat('ready', T.ready_status, 'Слово "' + W[wi].ru + '" записано 3 раза. Следующее слово...');
         setTimeout(() => {
-            wi++;
+            wi = nextIndex;
             currentAttempt = 1;
             show();
         }, 1200);
         return;
     }
 
-    stat('ai', T.report_status, T.report_hint);
-
-    stat('ready', 'Серия завершена', 'История и общий отчет сохранены ниже в этой вкладке.');
+    currentAttempt = MAX_ATTEMPTS_PER_WORD;
+    renderWordProgress();
+    stat('ready', 'Серия завершена', 'Все 15 слов записаны по 3 раза. История и общий отчет сохранены ниже.');
 }
 
 function skipWord() {
@@ -857,8 +1006,9 @@ function skipWord() {
     
     if (busy) return;
 
-    if (wi < W.length - 1) {
-        wi++;
+    const nextIndex = nextIncompleteWordIndex(wi + 1);
+    if (nextIndex !== -1) {
+        wi = nextIndex;
         currentAttempt = 1;
         show();
         return;
@@ -887,6 +1037,8 @@ function playSound() {
 document.addEventListener('DOMContentLoaded', () => {
     show();
     renderHistory();
+    renderWordProgress();
+    updateParticipantState();
     bindParticipantFields();
     document.getElementById('recordBtn')?.addEventListener('click', handleRecord);
     document.getElementById('playSoundBtn')?.addEventListener('click', playSound);
