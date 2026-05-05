@@ -188,22 +188,42 @@ require __DIR__ . '/../layouts/header.php';
 
             <div class="flex flex-col items-center gap-8 py-4">
                 <div class="relative">
-                    <div id="recordPulse" class="absolute inset-0 rounded-full bg-blue-soft/20 scale-100 opacity-0 transition-all duration-500"></div>
+                    <div id="recordPulse" class="pointer-events-none absolute inset-0 rounded-full bg-blue-soft/20 scale-100 opacity-0 transition-all duration-500"></div>
                     <button type="button" id="recordBtn" class="w-32 h-32 rounded-full gradient-record-btn text-white shadow-2xl hover:scale-105 transition-all duration-300 flex items-center justify-center group relative z-10">
                         <svg id="micIcon" class="w-12 h-12 transition-transform duration-300 group-hover:scale-110" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
                             <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                             <line x1="12" y1="19" x2="12" y2="22"></line>
                         </svg>
-                        <div id="stopIcon" class="hidden">
+                        <svg id="stopIcon" class="hidden w-12 h-12 text-white" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                             <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"></rect>
-                        </div>
+                        </svg>
                     </button>
                 </div>
                 
                 <p id="hintText" class="text-gray-500 font-medium text-center px-4 max-w-sm">
                     <?= e(tr('dataset_page.recording_hint', 'Нажмите на микрофон, чтобы начать запись')) ?>
                 </p>
+            </div>
+
+            <div id="pendingRecordingPanel" class="hidden max-w-xl mx-auto rounded-2xl bg-white border border-blue-100 shadow-sm p-5 space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-widest text-gray-500">Готовые записи</p>
+                        <p id="pendingRecordingText" class="text-sm font-semibold text-gray-700 mt-1"></p>
+                    </div>
+                    <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-mint/25 text-mint-dark text-xs font-bold">WAV</span>
+                </div>
+                <audio id="pendingAudio" controls preload="metadata" class="w-full"></audio>
+                <div id="pendingRecordingList" class="space-y-2 max-h-44 overflow-y-auto"></div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                    <button type="button" id="discardRecordingBtn" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-full hover:bg-gray-100 transition-colors">
+                        Удалить последнюю
+                    </button>
+                    <button type="button" id="sendAudioBtn" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-gray-900 rounded-full shadow-sm hover:bg-gray-800 transition-colors">
+                        Отправить все
+                    </button>
+                </div>
             </div>
 
             <div id="wordResult" class="hidden text-center py-2">
@@ -326,6 +346,8 @@ let an = null;
 let backendChildId = null;
 let backendReportUrl = null;
 let sessionHistory = [];
+let pendingRecordings = [];
+let pendingRecordingId = 0;
 
 const \$ = (id) => document.getElementById(id);
 const bars = document.querySelectorAll('.waveform-bar');
@@ -360,11 +382,21 @@ function currentWordText() {
     return W[wi] ? W[wi].ru : '';
 }
 
-function attemptCountForWord(wordText = currentWordText()) {
+function savedAttemptCountForWord(wordText = currentWordText()) {
     return sessionHistory.filter((item) => {
         const analysis = item.analysis || {};
         return normalizedWord(analysis.expected_word || item.word || '') === normalizedWord(wordText);
     }).length;
+}
+
+function pendingAttemptCountForWord(wordText = currentWordText()) {
+    return pendingRecordings.filter((recording) => {
+        return normalizedWord(recording.word.ru) === normalizedWord(wordText);
+    }).length;
+}
+
+function attemptCountForWord(wordText = currentWordText()) {
+    return savedAttemptCountForWord(wordText) + pendingAttemptCountForWord(wordText);
 }
 
 function completedWordCount() {
@@ -425,6 +457,97 @@ function syncAttemptFromHistory() {
     currentAttempt = Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, nextAttempt));
     updateAttemptText();
     renderWordProgress();
+}
+
+function resetPendingRecordings() {
+    pendingRecordings.forEach((recording) => {
+        if (recording.url) URL.revokeObjectURL(recording.url);
+    });
+    pendingRecordings = [];
+    renderPendingRecordings();
+}
+
+function renderPendingRecordings() {
+    const panel = $('pendingRecordingPanel');
+    const audio = $('pendingAudio');
+    const text = $('pendingRecordingText');
+    const list = $('pendingRecordingList');
+    const sendButton = $('sendAudioBtn');
+    const discardButton = $('discardRecordingBtn');
+    const latest = pendingRecordings[pendingRecordings.length - 1] || null;
+    const count = pendingRecordings.length;
+
+    if (panel) panel.classList.toggle('hidden', count === 0);
+    if (audio) {
+        if (latest) {
+            audio.src = latest.url;
+        } else {
+            audio.removeAttribute('src');
+        }
+    }
+    if (text) {
+        text.textContent = count
+            ? count + ' WAV в очереди. Можно продолжать запись или отправить все в историю.'
+            : '';
+    }
+    if (list) {
+        list.innerHTML = pendingRecordings.map((recording, index) => {
+            return ''
+                + '<div class="flex items-center justify-between gap-3 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2 text-xs">'
+                + '<span class="font-semibold text-gray-700">' + esc(index + 1) + '. ' + esc(recording.word.ru) + ' · попытка ' + esc(recording.attempt) + '/3</span>'
+                + '<button type="button" data-remove-pending="' + esc(recording.id) + '" class="font-bold text-red-500 hover:text-red-600">Удалить</button>'
+                + '</div>';
+        }).join('');
+    }
+    if (sendButton) sendButton.disabled = count === 0;
+    if (discardButton) discardButton.disabled = count === 0;
+}
+
+function addPendingRecording(recording) {
+    pendingRecordings.push(recording);
+    renderPendingRecordings();
+}
+
+function removePendingRecording(recordingId) {
+    const index = pendingRecordings.findIndex((recording) => Number(recording.id) === Number(recordingId));
+    if (index === -1) return;
+    const [recording] = pendingRecordings.splice(index, 1);
+    if (recording && recording.url) URL.revokeObjectURL(recording.url);
+    renderPendingRecordings();
+    syncAttemptFromHistory();
+    renderWordProgress();
+}
+
+function removeLastPendingRecording() {
+    const latest = pendingRecordings[pendingRecordings.length - 1];
+    if (!latest) return;
+    removePendingRecording(latest.id);
+}
+
+function advanceAfterLocalRecording(recording) {
+    const attempts = attemptCountForWord(recording.word.ru);
+    renderWordProgress();
+
+    if (attempts < MAX_ATTEMPTS_PER_WORD) {
+        currentAttempt = attempts + 1;
+        updateAttemptText();
+        stat('ready', T.ready_status, 'Запишите это же слово еще раз: попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD + '.');
+        return;
+    }
+
+    const nextIndex = nextIncompleteWordIndex(recording.wordIndex + 1);
+    if (nextIndex !== -1) {
+        wi = nextIndex;
+        currentAttempt = Math.min(MAX_ATTEMPTS_PER_WORD, attemptCountForWord(W[wi].ru) + 1);
+        show();
+        stat('ready', T.ready_status, 'Слово "' + recording.word.ru + '" готово. Продолжайте запись следующего слова.');
+        return;
+    }
+
+    currentAttempt = MAX_ATTEMPTS_PER_WORD;
+    renderWordProgress();
+    updateAttemptText();
+    stat('ready', 'Серия записана', 'Все 15 слов записаны по 3 раза. Нажмите "Отправить все", чтобы сохранить очередь в истории.');
 }
 
 function participantValidation() {
@@ -493,8 +616,9 @@ function renderHistory() {
 }
 
 function resetDatasetSession() {
-    if (!sesOk && !backendChildId && sessionHistory.length === 0) return;
+    if (!sesOk && !backendChildId && sessionHistory.length === 0 && pendingRecordings.length === 0) return;
 
+    resetPendingRecordings();
     sesOk = false;
     backendChildId = null;
     backendReportUrl = null;
@@ -638,21 +762,21 @@ function stat(mode, title, hint) {
 
     if (mode === 'ready') {
         $('statusDot').className = 'w-3 h-3 rounded-full bg-green-500';
-        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn transition-all duration-300 transform hover:scale-105 active:scale-95';
+        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn transition-all duration-300 transform hover:scale-105 active:scale-95 relative z-10';
         $('micIcon').classList.remove('hidden');
         $('stopIcon').classList.add('hidden');
     }
 
     if (mode === 'rec') {
         $('statusDot').className = 'w-3 h-3 rounded-full bg-red-500 animate-pulse';
-        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn-active animate-pulse-soft transition-all duration-300';
+        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn-active animate-pulse-soft transition-all duration-300 relative z-10';
         $('micIcon').classList.add('hidden');
         $('stopIcon').classList.remove('hidden');
     }
 
     if (mode === 'ai') {
         $('statusDot').className = 'w-3 h-3 rounded-full bg-yellow-500 animate-pulse';
-        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn opacity-50 transition-all duration-300';
+        $('recordBtn').className = 'w-32 h-32 rounded-full flex items-center justify-center shadow-2xl gradient-record-btn opacity-50 transition-all duration-300 relative z-10';
         $('micIcon').classList.remove('hidden');
         $('stopIcon').classList.add('hidden');
     }
@@ -706,6 +830,71 @@ function realWave(stream) {
     }
 }
 
+function stopMediaStream() {
+    if (!ms) return;
+    ms.getTracks().forEach((track) => track.stop());
+    ms = null;
+}
+
+function secureContextMessage() {
+    const host = window.location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    if (isLocal) return T.mic_error_https;
+    return T.mic_error_https + ' Откройте проект через localhost на своем компьютере или настройте HTTPS для доступа с другого устройства.';
+}
+
+async function microphonePermissionState() {
+    if (!navigator.permissions || !navigator.permissions.query) return '';
+    try {
+        const permission = await navigator.permissions.query({ name: 'microphone' });
+        return permission.state || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+async function requestMicrophoneStream() {
+    const permissionState = await microphonePermissionState();
+    if (permissionState === 'denied') {
+        throw new Error('Доступ к микрофону запрещен в браузере. Нажмите на значок замка рядом с адресом сайта и разрешите микрофон.');
+    }
+
+    try {
+        return await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+    } catch (e) {
+        if (e && e.name === 'NotAllowedError') {
+            throw new Error(T.mic_error_denied + ' Если окно разрешения не появляется, нажмите на значок замка рядом с адресом сайта.');
+        }
+        if (e && e.name === 'NotFoundError') {
+            throw new Error(T.mic_error_not_found);
+        }
+        if (e && e.name === 'SecurityError') {
+            throw new Error(secureContextMessage());
+        }
+        throw new Error(T.mic_error_generic + ': ' + (e && e.message ? e.message : ''));
+    }
+}
+
+function formatBackendDetail(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+        return detail.map(formatBackendDetail).filter(Boolean).join('; ');
+    }
+    if (typeof detail === 'object') {
+        const location = Array.isArray(detail.loc) ? detail.loc.filter((part) => part !== 'body').join('.') : '';
+        const message = detail.msg || detail.message || detail.detail || JSON.stringify(detail);
+        return location ? location + ': ' + message : message;
+    }
+    return String(detail);
+}
+
 async function apiJson(url, options = {}) {
     const r = await fetch(url, options);
     let d = null;
@@ -716,7 +905,7 @@ async function apiJson(url, options = {}) {
     }
 
     if (!r.ok) {
-        const msg = d && d.detail ? d.detail : 'Backend error: ' + r.status;
+        const msg = formatBackendDetail(d && d.detail) || (d && d.message) || 'Backend error: ' + r.status;
         throw new Error(msg);
     }
 
@@ -800,7 +989,7 @@ async function handleRecord() {
     }
 
     if (!window.isSecureContext) {
-        err(T.mic_error_https);
+        err(secureContextMessage());
         return;
     }
 
@@ -814,30 +1003,32 @@ async function handleRecord() {
         return;
     }
 
-    await ses();
-    syncAttemptFromHistory();
-    if (attemptCountForWord() >= MAX_ATTEMPTS_PER_WORD) {
-        err('Для слова "' + currentWordText() + '" уже сохранены 3 записи этого ребенка. Перейдите к следующему слову.');
-        stat('ready', T.ready_status, 'Максимум для одного слова: 3 голосовые записи.');
+    busy = true;
+    try {
+        ms = await requestMicrophoneStream();
+    } catch (e) {
+        const message = e && e.message ? e.message : T.mic_error_generic;
+        busy = false;
+        err(message);
+        stat('ready', 'Микрофон недоступен', message);
         return;
     }
 
     try {
-        ms = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
-    } catch (e) {
-        if (e && e.name === 'NotAllowedError') {
-            err(T.mic_error_denied);
-        } else if (e && e.name === 'NotFoundError') {
-            err(T.mic_error_not_found);
-        } else {
-            err(T.mic_error_generic + ': ' + (e && e.message ? e.message : ''));
+        await ses();
+        syncAttemptFromHistory();
+        if (attemptCountForWord() >= MAX_ATTEMPTS_PER_WORD) {
+            stopMediaStream();
+            busy = false;
+            err('Для слова "' + currentWordText() + '" уже сохранены 3 записи этого ребенка. Перейдите к следующему слову.');
+            stat('ready', T.ready_status, 'Максимум для одного слова: 3 голосовые записи.');
+            return;
         }
+    } catch (e) {
+        stopMediaStream();
+        busy = false;
+        err('Ошибка: ' + (e && e.message ? e.message : 'не удалось подготовить запись'));
+        stat('ready', T.ready_status, T.ready_hint);
         return;
     }
 
@@ -855,8 +1046,9 @@ async function handleRecord() {
     try {
         mr = mt ? new MediaRecorder(ms, { mimeType: mt }) : new MediaRecorder(ms);
     } catch (e) {
+        busy = false;
         err('Не удалось запустить запись: ' + (e && e.message ? e.message : 'ошибка MediaRecorder'));
-        if (ms) ms.getTracks().forEach((t) => t.stop());
+        stopMediaStream();
         return;
     }
 
@@ -869,21 +1061,23 @@ async function handleRecord() {
         rec = false;
         busy = false;
         stopWave();
-        if (ms) ms.getTracks().forEach((t) => t.stop());
+        stopMediaStream();
         stat('ready', T.ready_status, T.ready_hint);
     };
 
-    mr.onstop = upload;
+    mr.onstop = preparePendingRecording;
 
     try {
         mr.start();
     } catch (e) {
+        busy = false;
         err(T.mic_error_generic);
-        if (ms) ms.getTracks().forEach((t) => t.stop());
+        stopMediaStream();
         return;
     }
 
     rec = true;
+    busy = false;
     stat('rec', T.recording_status, T.recording_hint);
     realWave(ms);
 
@@ -892,7 +1086,7 @@ async function handleRecord() {
     }, 4000);
 }
 
-async function upload() {
+async function preparePendingRecording() {
     rec = false;
     busy = true;
     stopWave();
@@ -902,32 +1096,184 @@ async function upload() {
     }
     ac = null;
 
-    stat('ai', T.analyzing_status, T.analyzing_hint);
+    stat('ai', 'Подготовка WAV', 'Готовим запись к отправке.');
 
     const mime = (mr && mr.mimeType) ? mr.mimeType : 'audio/webm';
-    const ext = mime.includes('mp4') ? 'mp4' : (mime.includes('ogg') ? 'ogg' : 'webm');
     const blob = new Blob(ch, { type: mime });
 
     if (!blob || blob.size === 0) {
         err(T.mic_error_empty);
         busy = false;
         stat('ready', T.ready_status, T.ready_hint);
-        if (ms) ms.getTracks().forEach((t) => t.stop());
+        stopMediaStream();
         return;
     }
 
     try {
+        const wavBlob = await convertBlobToWav(blob);
+        const url = URL.createObjectURL(wavBlob);
+        const recording = {
+            id: ++pendingRecordingId,
+            blob: wavBlob,
+            url: url,
+            word: W[wi],
+            wordIndex: wi,
+            attempt: currentAttempt
+        };
+        addPendingRecording(recording);
+        busy = false;
+        advanceAfterLocalRecording(recording);
+    } catch (e) {
+        err('Не удалось подготовить WAV: ' + (e && e.message ? e.message : 'ошибка обработки аудио'));
+        busy = false;
+        stat('ready', T.ready_status, T.ready_hint);
+    } finally {
+        stopMediaStream();
+    }
+}
+
+function writeAscii(view, offset, value) {
+    for (let i = 0; i < value.length; i++) {
+        view.setUint8(offset + i, value.charCodeAt(i));
+    }
+}
+
+function audioBufferToWav(buffer) {
+    const channels = Math.max(1, buffer.numberOfChannels);
+    const sampleRate = buffer.sampleRate;
+    const frameCount = buffer.length;
+    const bytesPerSample = 2;
+    const blockAlign = channels * bytesPerSample;
+    const dataSize = frameCount * blockAlign;
+    const output = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(output);
+    const channelData = [];
+
+    for (let channel = 0; channel < channels; channel++) {
+        channelData.push(buffer.getChannelData(channel));
+    }
+
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, channels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < frameCount; i++) {
+        for (let channel = 0; channel < channels; channel++) {
+            const sample = Math.max(-1, Math.min(1, channelData[channel][i] || 0));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += bytesPerSample;
+        }
+    }
+
+    return output;
+}
+
+async function convertBlobToWav(blob) {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+        throw new Error('браузер не поддерживает подготовку WAV');
+    }
+
+    const context = new AudioContextCtor();
+    try {
+        const sourceBuffer = await blob.arrayBuffer();
+        const audioBuffer = await context.decodeAudioData(sourceBuffer.slice(0));
+        return new Blob([audioBufferToWav(audioBuffer)], { type: 'audio/wav' });
+    } finally {
+        try { await context.close(); } catch (e) {}
+    }
+}
+
+function storeUploadedResult(response, wordIndex) {
+    const analysis = response.analysis || response;
+    const audio = response.audio || {};
+    const word = W[wordIndex] || W[wi] || {};
+    sessionHistory.unshift({
+        word: word.ru || analysis.expected_word || '',
+        audio,
+        analysis
+    });
+    return { analysis, audio };
+}
+
+async function sendPendingRecordings() {
+    if (busy || rec) return;
+    if (pendingRecordings.length === 0) {
+        err('Сначала запишите хотя бы один голос.');
+        return;
+    }
+
+    const validation = updateParticipantState();
+    if (!validation.ok) {
+        err(validation.message);
+        return;
+    }
+
+    const queue = [...pendingRecordings];
+    busy = true;
+    const sendButton = $('sendAudioBtn');
+    const discardButton = $('discardRecordingBtn');
+    if (sendButton) sendButton.disabled = true;
+    if (discardButton) discardButton.disabled = true;
+    stat('ai', T.analyzing_status, 'Отправляем ' + queue.length + ' записей в историю.');
+
+    let uploaded = 0;
+    try {
         await ses();
-        const backendWord = await ensureBackendWord(W[wi]);
 
-        const fd = new FormData();
-        fd.append('child_id', String(backendChildId));
-        fd.append('word_id', String(backendWord.id));
-        fd.append('attempt_number', 'x' + Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, currentAttempt)));
-        fd.append('file', blob, 'speech.' + ext);
+        for (const recording of queue) {
+            if (!pendingRecordings.some((item) => item.id === recording.id)) {
+                continue;
+            }
 
-        const d = await apiJson(API.uploadAudio, { method: 'POST', body: fd });
-        await done(d);
+            const backendWord = await ensureBackendWord(recording.word);
+            const fd = new FormData();
+            fd.append('child_id', String(backendChildId));
+            fd.append('word_id', String(backendWord.id));
+            fd.append('attempt_number', 'x' + Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, recording.attempt)));
+            fd.append('file', recording.blob, 'speech.wav');
+
+            const response = await apiJson(API.uploadAudio, { method: 'POST', body: fd });
+            removePendingRecording(recording.id);
+            storeUploadedResult(response, recording.wordIndex);
+            uploaded += 1;
+            renderHistory();
+            renderWordProgress();
+            stat('ai', T.analyzing_status, 'Отправлено ' + uploaded + ' из ' + queue.length + ' записей.');
+        }
+
+        renderHistory();
+        renderWordProgress();
+        try {
+            await refreshReport();
+        } catch (e) {
+            console.warn('Report refresh failed', e);
+        }
+
+        const nextIndex = nextIncompleteWordIndex(wi);
+        if (nextIndex !== -1) {
+            wi = nextIndex;
+            show();
+            stat('ready', T.ready_status, 'Отправлено ' + uploaded + ' записей. Можно продолжать сбор датасета.');
+        } else {
+            currentAttempt = MAX_ATTEMPTS_PER_WORD;
+            updateAttemptText();
+            stat('ready', 'Серия завершена', 'Отправлено ' + uploaded + ' записей. Все 15 слов готовы.');
+        }
+
+        busy = false;
+        renderPendingRecordings();
     } catch (e) {
         const message = e && e.message ? e.message : 'неизвестная ошибка';
         if (message.includes('3 голосовые записи')) {
@@ -943,11 +1289,12 @@ async function upload() {
                 console.warn('History refresh failed after duplicate attempt', refreshError);
             }
         }
-        err('Ошибка: ' + message);
+        err('Ошибка: ' + message + (uploaded ? '. Уже отправлено: ' + uploaded + '.' : ''));
         busy = false;
-        stat('ready', 'Готов к записи', 'Попробуйте ещё раз');
-    } finally {
-        if (ms) ms.getTracks().forEach((t) => t.stop());
+        if (sendButton) sendButton.disabled = false;
+        if (discardButton) discardButton.disabled = false;
+        renderPendingRecordings();
+        stat('ready', 'Готов к записи', pendingRecordings.length ? 'Оставшиеся записи можно отправить еще раз.' : 'Можно продолжать запись.');
     }
 }
 
@@ -1002,6 +1349,7 @@ async function done(a) {
 function skipWord() {
     if (rec && mr && mr.state === 'recording') {
         mr.stop();
+        return;
     }
     
     if (busy) return;
@@ -1041,6 +1389,17 @@ document.addEventListener('DOMContentLoaded', () => {
     updateParticipantState();
     bindParticipantFields();
     document.getElementById('recordBtn')?.addEventListener('click', handleRecord);
+    document.getElementById('sendAudioBtn')?.addEventListener('click', sendPendingRecordings);
+    document.getElementById('discardRecordingBtn')?.addEventListener('click', () => {
+        removeLastPendingRecording();
+        stat('ready', T.ready_status, T.ready_hint);
+    });
+    document.getElementById('pendingRecordingList')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-remove-pending]');
+        if (!button || busy || rec) return;
+        removePendingRecording(button.dataset.removePending);
+        stat('ready', T.ready_status, T.ready_hint);
+    });
     document.getElementById('playSoundBtn')?.addEventListener('click', playSound);
     document.getElementById('skipWordBtn')?.addEventListener('click', skipWord);
 });

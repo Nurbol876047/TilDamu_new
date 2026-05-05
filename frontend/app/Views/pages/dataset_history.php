@@ -4,6 +4,24 @@ declare(strict_types=1);
 
 $fastApiBase = rtrim((string) env('FASTAPI_API_URL', 'http://localhost:8000/api'), '/');
 $fastApiJson = json_encode($fastApiBase, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$datasetWords = [
+    ['word' => 'мама', 'target_sound' => null],
+    ['word' => 'ракета', 'target_sound' => 'Р'],
+    ['word' => 'лев', 'target_sound' => 'Р'],
+    ['word' => 'козлёнок', 'target_sound' => 'Л'],
+    ['word' => 'цветок', 'target_sound' => 'Л'],
+    ['word' => 'часы', 'target_sound' => 'С'],
+    ['word' => 'кошка', 'target_sound' => 'С'],
+    ['word' => 'санки', 'target_sound' => 'Ш'],
+    ['word' => 'ягнёнок', 'target_sound' => 'Ш'],
+    ['word' => 'флаг', 'target_sound' => 'Ж'],
+    ['word' => 'виноград', 'target_sound' => 'Ж'],
+    ['word' => 'заяц', 'target_sound' => 'Қ'],
+    ['word' => 'лебедь', 'target_sound' => 'Қ'],
+    ['word' => 'космос', 'target_sound' => 'Ғ'],
+    ['word' => 'закон', 'target_sound' => 'З'],
+];
+$datasetWordsJson = json_encode($datasetWords, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
 require __DIR__ . '/../layouts/header.php';
 ?>
@@ -69,11 +87,14 @@ require __DIR__ . '/../layouts/header.php';
 <script>
 const FASTAPI = <?= $fastApiJson ?>;
 const HISTORY_API = FASTAPI + '/audio/history';
+const DATASET_WORDS = <?= $datasetWordsJson ?>;
+const DATASET_WORD_TOTAL = DATASET_WORDS.length;
 
 const state = {
     items: [],
     loading: false,
-    openGroups: new Set(),
+    openChildren: new Set(),
+    openWords: new Set(),
 };
 
 const $history = (id) => document.getElementById(id);
@@ -119,6 +140,10 @@ function audioUrl(item) {
     return FASTAPI + item.audio_url;
 }
 
+function downloadFileName(item) {
+    return 'voice-' + item.child_id + '-' + item.word_id + '-' + String(item.attempt_number || 'x').replace(/[^a-z0-9_-]+/gi, '') + '.wav';
+}
+
 function ownerMeta(item) {
     const parts = [];
     if (item.child_external_id) parts.push('ID: ' + item.child_external_id);
@@ -135,29 +160,100 @@ function genderLabel(value) {
     return value;
 }
 
-function groupKey(item) {
-    return 'child:' + item.child_id + ':word:' + item.word_id;
+function normalizedWord(value) {
+    return String(value || '').trim().toLowerCase().replace(/ё/g, 'е');
 }
 
-function groupRecordings(items) {
-    const map = new Map();
-    items.forEach((item) => {
-        const key = groupKey(item);
-        if (!map.has(key)) {
-            map.set(key, { key, owner: item, word: item.word, targetSound: item.target_sound, items: [], bytes: 0, latestAt: 0 });
-        }
-        const group = map.get(key);
-        group.items.push(item);
-        group.bytes += Number(item.file_size || 0);
-        group.latestAt = Math.max(group.latestAt, new Date(item.created_at).getTime() || 0);
+function childKey(item) {
+    return 'child:' + item.child_id;
+}
+
+function wordStateKey(child, wordText) {
+    return child.key + ':word:' + normalizedWord(wordText);
+}
+
+function sortRecordings(items) {
+    return items.sort((a, b) => {
+        const byAttempt = String(a.attempt_number).localeCompare(String(b.attempt_number), 'ru', { numeric: true });
+        if (byAttempt !== 0) return byAttempt;
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
-    return [...map.values()].map((group) => {
-        group.items.sort((a, b) => {
-            const byAttempt = String(a.attempt_number).localeCompare(String(b.attempt_number), 'ru', { numeric: true });
-            if (byAttempt !== 0) return byAttempt;
-            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+}
+
+function groupChildren(items) {
+    const children = new Map();
+
+    items.forEach((item) => {
+        const key = childKey(item);
+        if (!children.has(key)) {
+            children.set(key, {
+                key,
+                owner: item,
+                items: [],
+                bytes: 0,
+                latestAt: 0,
+                wordMap: new Map(),
+            });
+        }
+
+        const child = children.get(key);
+        const createdAt = new Date(item.created_at).getTime() || 0;
+        child.items.push(item);
+        child.bytes += Number(item.file_size || 0);
+        child.latestAt = Math.max(child.latestAt, createdAt);
+
+        const wordKey = normalizedWord(item.word);
+        if (!child.wordMap.has(wordKey)) {
+            child.wordMap.set(wordKey, {
+                key: wordStateKey(child, item.word),
+                word: item.word,
+                targetSound: item.target_sound,
+                items: [],
+                bytes: 0,
+                latestAt: 0,
+                order: Number.MAX_SAFE_INTEGER,
+                isDatasetWord: false,
+            });
+        }
+
+        const wordGroup = child.wordMap.get(wordKey);
+        wordGroup.items.push(item);
+        wordGroup.bytes += Number(item.file_size || 0);
+        wordGroup.latestAt = Math.max(wordGroup.latestAt, createdAt);
+        if (item.target_sound) wordGroup.targetSound = item.target_sound;
+    });
+
+    return [...children.values()].map((child) => {
+        const datasetWordGroups = DATASET_WORDS.map((entry, index) => {
+            const key = normalizedWord(entry.word);
+            const existing = child.wordMap.get(key);
+            const group = existing || {
+                key: wordStateKey(child, entry.word),
+                word: entry.word,
+                targetSound: entry.target_sound,
+                items: [],
+                bytes: 0,
+                latestAt: 0,
+            };
+            group.order = index;
+            group.isDatasetWord = true;
+            if (!group.targetSound && entry.target_sound) group.targetSound = entry.target_sound;
+            group.items = sortRecordings(group.items);
+            return group;
         });
-        return group;
+
+        const datasetKeys = new Set(DATASET_WORDS.map((entry) => normalizedWord(entry.word)));
+        const extraWordGroups = [...child.wordMap.entries()]
+            .filter(([key]) => !datasetKeys.has(key))
+            .map(([, group]) => {
+                group.items = sortRecordings(group.items);
+                return group;
+            })
+            .sort((a, b) => b.latestAt - a.latestAt || a.word.localeCompare(b.word, 'ru'));
+
+        child.words = datasetWordGroups.concat(extraWordGroups);
+        child.recordedDatasetWords = datasetWordGroups.filter((group) => group.items.length > 0).length;
+        return child;
     }).sort((a, b) => b.latestAt - a.latestAt);
 }
 
@@ -199,7 +295,7 @@ function renderRecording(item) {
             <audio controls preload="none" class="w-full" src="${escapeHtml(audioUrl(item))}"></audio>
             <div class="text-sm text-gray-600">
                 <div class="font-semibold text-gray-800">${escapeHtml(formatBytes(item.file_size))}</div>
-                <a href="${escapeHtml(audioUrl(item))}" target="_blank" class="text-xs font-semibold text-blue-soft hover:underline">Открыть файл</a>
+                <button type="button" data-download-wav="${escapeHtml(item.id)}" class="text-xs font-semibold text-blue-soft hover:underline">Скачать WAV</button>
             </div>
             <button type="button" data-delete-audio="${escapeHtml(item.id)}" class="inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 bg-red-50 border border-red-100 rounded-full hover:bg-red-100 transition-colors">
                 <svg class="w-4 h-4 pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
@@ -209,15 +305,49 @@ function renderRecording(item) {
     `;
 }
 
+function renderWordGroup(child, group, index) {
+    const isOpen = state.openWords.has(group.key);
+    const count = group.items.length;
+    const isComplete = count >= 3;
+    const statusClass = isComplete
+        ? 'bg-mint/25 text-mint-dark'
+        : (count > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500');
+    const latestDate = group.latestAt ? formatDate(group.latestAt) : '-';
+    return `
+        <div class="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+            <button type="button" data-word-toggle="${escapeHtml(group.key)}" class="w-full px-4 py-4 text-left hover:bg-blue-50/35 transition-colors">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs font-bold text-gray-400">${escapeHtml(index + 1)}.</span>
+                            <span class="font-bold text-gray-900">${escapeHtml(group.word)}</span>
+                            ${group.targetSound ? '<span class="inline-flex px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">звук ' + escapeHtml(group.targetSound) + '</span>' : ''}
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">${escapeHtml(latestDate)}</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold ${statusClass}">${count}/3 ${recordingWord(count)}</span>
+                        <span class="text-sm font-semibold text-gray-500">${escapeHtml(formatBytes(group.bytes))}</span>
+                        <svg class="w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                    </div>
+                </div>
+            </button>
+            <div class="${isOpen ? '' : 'hidden'} px-4 pb-4 space-y-3">
+                ${count ? group.items.map(renderRecording).join('') : '<div class="rounded-2xl bg-gray-50 border border-gray-100 px-4 py-3 text-sm text-gray-500">Для этого слова пока нет сохраненных голосов.</div>'}
+            </div>
+        </div>
+    `;
+}
+
 function renderGroups(items) {
-    const groups = groupRecordings(items);
-    const html = groups.map((group) => {
-        const owner = group.owner;
-        const isOpen = state.openGroups.has(group.key);
-        const lastDate = group.latestAt;
+    const children = groupChildren(items);
+    const html = children.map((child) => {
+        const owner = child.owner;
+        const isOpen = state.openChildren.has(child.key);
+        const lastDate = child.latestAt;
         return `
             <section class="bg-white">
-                <button type="button" data-group-toggle="${escapeHtml(group.key)}" class="w-full px-5 py-5 text-left hover:bg-blue-50/35 transition-colors">
+                <button type="button" data-child-toggle="${escapeHtml(child.key)}" class="w-full px-5 py-5 text-left hover:bg-blue-50/35 transition-colors">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div class="min-w-0">
                             <div class="flex items-center gap-3">
@@ -228,29 +358,134 @@ function renderGroups(items) {
                                     <h3 class="font-bold text-gray-900 truncate">${escapeHtml(owner.child_name || 'Ребенок')}</h3>
                                     <p class="text-xs text-gray-500 mt-0.5">${escapeHtml(ownerMeta(owner))}</p>
                                     <p class="text-sm text-gray-700 mt-2">
-                                        <span class="font-semibold">Слово:</span> ${escapeHtml(group.word)}
-                                        ${group.targetSound ? '<span class="ml-2 inline-flex px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">звук ' + escapeHtml(group.targetSound) + '</span>' : ''}
+                                        <span class="font-semibold">${escapeHtml(child.recordedDatasetWords)}/${escapeHtml(DATASET_WORD_TOTAL)} слов</span>
+                                        · ${escapeHtml(child.items.length)} ${recordingWord(child.items.length)}
                                     </p>
                                 </div>
                             </div>
                         </div>
                         <div class="flex flex-wrap items-center gap-3 text-sm">
-                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${group.items.length}/3 ${recordingWord(group.items.length)}</span>
-                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${escapeHtml(formatBytes(group.bytes))}</span>
+                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${escapeHtml(DATASET_WORD_TOTAL)} слов</span>
+                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${escapeHtml(formatBytes(child.bytes))}</span>
                             <span class="text-gray-500">${escapeHtml(formatDate(lastDate))}</span>
                             <svg class="w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                         </div>
                     </div>
                 </button>
-                <div class="${isOpen ? '' : 'hidden'} px-5 pb-5 space-y-3">
-                    <div class="text-xs text-gray-400">Backend child_id: ${escapeHtml(owner.child_id)} · word_id: ${escapeHtml(owner.word_id)}</div>
-                    ${group.items.map(renderRecording).join('')}
+                <div class="${isOpen ? '' : 'hidden'} px-5 pb-5 space-y-3 bg-gray-50/35">
+                    <div class="text-xs text-gray-400">Backend child_id: ${escapeHtml(owner.child_id)}</div>
+                    ${child.words.map((wordGroup, index) => renderWordGroup(child, wordGroup, index)).join('')}
                 </div>
             </section>
         `;
     }).join('');
     $history('historyGroups').innerHTML = html;
-    $history('historyStatus').textContent = items.length ? 'Показано: ' + items.length + ' · групп: ' + groups.length : 'Нет записей';
+    $history('historyStatus').textContent = items.length ? 'Показано: ' + items.length + ' · детей: ' + children.length : 'Нет записей';
+}
+
+function writeAscii(view, offset, value) {
+    for (let i = 0; i < value.length; i++) {
+        view.setUint8(offset + i, value.charCodeAt(i));
+    }
+}
+
+function audioBufferToWav(buffer) {
+    const channels = Math.max(1, buffer.numberOfChannels);
+    const sampleRate = buffer.sampleRate;
+    const frameCount = buffer.length;
+    const bytesPerSample = 2;
+    const blockAlign = channels * bytesPerSample;
+    const dataSize = frameCount * blockAlign;
+    const output = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(output);
+    const channelData = [];
+
+    for (let channel = 0; channel < channels; channel++) {
+        channelData.push(buffer.getChannelData(channel));
+    }
+
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, channels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < frameCount; i++) {
+        for (let channel = 0; channel < channels; channel++) {
+            const sample = Math.max(-1, Math.min(1, channelData[channel][i] || 0));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += bytesPerSample;
+        }
+    }
+
+    return output;
+}
+
+async function convertBlobToWav(blob) {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+        throw new Error('браузер не поддерживает подготовку WAV');
+    }
+
+    const context = new AudioContextCtor();
+    try {
+        const sourceBuffer = await blob.arrayBuffer();
+        const audioBuffer = await context.decodeAudioData(sourceBuffer.slice(0));
+        return new Blob([audioBufferToWav(audioBuffer)], { type: 'audio/wav' });
+    } finally {
+        try { await context.close(); } catch (e) {}
+    }
+}
+
+function saveBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function downloadWav(audioId, button) {
+    const item = state.items.find((entry) => Number(entry.id) === Number(audioId));
+    if (!item) return;
+
+    const previousText = button ? button.textContent : '';
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Готовим WAV...';
+    }
+
+    try {
+        const response = await fetch(audioUrl(item));
+        if (!response.ok) {
+            throw new Error('не удалось получить аудио');
+        }
+
+        const originalBlob = await response.blob();
+        const isAlreadyWav = String(item.file_path || '').toLowerCase().endsWith('.wav') || String(originalBlob.type || '').includes('wav');
+        const wavBlob = isAlreadyWav ? originalBlob : await convertBlobToWav(originalBlob);
+        saveBlob(wavBlob, downloadFileName(item));
+    } catch (error) {
+        $history('historyError').textContent = 'Не удалось скачать WAV: ' + (error && error.message ? error.message : 'ошибка обработки аудио');
+        $history('historyError').classList.remove('hidden');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = previousText;
+        }
+    }
 }
 
 function render(payload) {
@@ -317,6 +552,13 @@ document.addEventListener('DOMContentLoaded', () => {
         searchTimer = setTimeout(() => loadHistory({ force: true }), 300);
     });
     $history('historyGroups')?.addEventListener('click', (event) => {
+        const downloadButton = event.target.closest('[data-download-wav]');
+        if (downloadButton) {
+            event.stopPropagation();
+            downloadWav(downloadButton.dataset.downloadWav, downloadButton);
+            return;
+        }
+
         const deleteButton = event.target.closest('[data-delete-audio]');
         if (deleteButton) {
             event.stopPropagation();
@@ -324,13 +566,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const groupButton = event.target.closest('[data-group-toggle]');
-        if (!groupButton) return;
-        const key = groupButton.dataset.groupToggle;
-        if (state.openGroups.has(key)) {
-            state.openGroups.delete(key);
+        const wordButton = event.target.closest('[data-word-toggle]');
+        if (wordButton) {
+            const key = wordButton.dataset.wordToggle;
+            if (state.openWords.has(key)) {
+                state.openWords.delete(key);
+            } else {
+                state.openWords.add(key);
+            }
+            renderGroups(state.items);
+            return;
+        }
+
+        const childButton = event.target.closest('[data-child-toggle]');
+        if (!childButton) return;
+        const key = childButton.dataset.childToggle;
+        if (state.openChildren.has(key)) {
+            state.openChildren.delete(key);
         } else {
-            state.openGroups.add(key);
+            state.openChildren.add(key);
         }
         renderGroups(state.items);
     });

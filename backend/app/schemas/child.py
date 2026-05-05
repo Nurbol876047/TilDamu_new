@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ChildBase(BaseModel):
     full_name: str = Field(min_length=2, max_length=160, examples=["Айша Нурланқызы"])
     age: int = Field(ge=2, le=16, examples=[5])
-    parent_name: str = Field(min_length=2, max_length=160, examples=["Нурлан"])
+    parent_name: str = Field(min_length=1, max_length=160, examples=["101"])
     gender: str | None = Field(default=None, max_length=20, examples=["female"])
     disorder_type: str = Field(min_length=2, max_length=120, examples=["дислалия"])
 

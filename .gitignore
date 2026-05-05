@@ -16,6 +16,11 @@ frontend/storage/uploads/*
 !frontend/storage/uploads/avatars/
 frontend/storage/uploads/avatars/*
 !frontend/storage/uploads/avatars/.gitkeep
+!frontend/storage/uploads/avatars/*.gif
+!frontend/storage/uploads/avatars/*.jpg
+!frontend/storage/uploads/avatars/*.jpeg
+!frontend/storage/uploads/avatars/*.png
+!frontend/storage/uploads/avatars/*.webp
 
 backend/uploads/audio/*
 !backend/uploads/audio/.gitkeep
