@@ -126,6 +126,7 @@ def _build_child_report(child_id: int, db: Session) -> ChildGeneralReport:
             full_name=child.full_name,
             age=child.age,
             parent_name=child.parent_name,
+            gender=child.gender,
             disorder_type=child.disorder_type,
         ),
         total_audio=len(results),
@@ -226,6 +227,7 @@ def _render_report_html(report: ChildGeneralReport) -> str:
     child_name = escape(report.child.full_name)
     child_disorder = escape(report.child.disorder_type)
     child_parent = escape(report.child.parent_name)
+    child_gender = escape(report.child.gender or "-")
     summary = escape(report.summary)
     overall_risk = escape(report.overall_risk_level)
     return f"""
@@ -253,7 +255,7 @@ def _render_report_html(report: ChildGeneralReport) -> str:
         <section>
           <h1>Общий отчет: {child_name}</h1>
           <p>{summary}</p>
-          <p>{report.child.age} жас · {child_disorder} · родитель: {child_parent}</p>
+          <p>{report.child.age} жас · пол: {child_gender} · {child_disorder} · ID: {child_parent}</p>
         </section>
         <section class="grid">
           <div class="metric"><span>Попытки</span><strong>{report.total_audio}</strong></div>

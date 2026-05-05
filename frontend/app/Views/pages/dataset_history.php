@@ -16,7 +16,7 @@ require __DIR__ . '/../layouts/header.php';
                 <?= e(tr('dataset_history', 'История датасета')) ?>
             </div>
             <h1 class="text-4xl font-bold text-gray-800"><?= e(tr('dataset_history', 'История датасета')) ?></h1>
-            <p class="text-gray-600 max-w-2xl">Все сохраненные голосовые записи с владельцами, словами, анализом и быстрым удалением неудачных попыток.</p>
+            <p class="text-gray-600 max-w-2xl">Все записи сгруппированы по ребёнку и слову: внутри одного блока хранится максимум 3 голосовые попытки.</p>
         </div>
         <div class="flex flex-wrap gap-3">
             <a href="/dataset.php" class="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors no-underline">
@@ -123,12 +123,20 @@ function ownerMeta(item) {
     const parts = [];
     if (item.child_external_id) parts.push('ID: ' + item.child_external_id);
     if (item.child_age) parts.push(item.child_age + ' лет');
+    if (item.child_gender) parts.push('Пол: ' + genderLabel(item.child_gender));
     if (item.disorder_type) parts.push(item.disorder_type);
     return parts.length ? parts.join(' · ') : 'Данные владельца не заполнены';
 }
 
+function genderLabel(value) {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized === 'male') return 'мужской';
+    if (normalized === 'female') return 'женский';
+    return value;
+}
+
 function groupKey(item) {
-    return 'child:' + item.child_id;
+    return 'child:' + item.child_id + ':word:' + item.word_id;
 }
 
 function groupRecordings(items) {
@@ -136,20 +144,21 @@ function groupRecordings(items) {
     items.forEach((item) => {
         const key = groupKey(item);
         if (!map.has(key)) {
-            map.set(key, { key, owner: item, items: [], bytes: 0 });
+            map.set(key, { key, owner: item, word: item.word, targetSound: item.target_sound, items: [], bytes: 0, latestAt: 0 });
         }
         const group = map.get(key);
         group.items.push(item);
         group.bytes += Number(item.file_size || 0);
+        group.latestAt = Math.max(group.latestAt, new Date(item.created_at).getTime() || 0);
     });
     return [...map.values()].map((group) => {
         group.items.sort((a, b) => {
-            const byWord = String(a.word).localeCompare(String(b.word), 'ru');
-            if (byWord !== 0) return byWord;
-            return String(a.attempt_number).localeCompare(String(b.attempt_number), 'ru', { numeric: true });
+            const byAttempt = String(a.attempt_number).localeCompare(String(b.attempt_number), 'ru', { numeric: true });
+            if (byAttempt !== 0) return byAttempt;
+            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
         return group;
-    });
+    }).sort((a, b) => b.latestAt - a.latestAt);
 }
 
 function analysisBadge(item) {
@@ -205,7 +214,7 @@ function renderGroups(items) {
     const html = groups.map((group) => {
         const owner = group.owner;
         const isOpen = state.openGroups.has(group.key);
-        const lastDate = group.items.reduce((latest, item) => Math.max(latest, new Date(item.created_at).getTime() || 0), 0);
+        const lastDate = group.latestAt;
         return `
             <section class="bg-white">
                 <button type="button" data-group-toggle="${escapeHtml(group.key)}" class="w-full px-5 py-5 text-left hover:bg-blue-50/35 transition-colors">
@@ -218,11 +227,15 @@ function renderGroups(items) {
                                 <div class="min-w-0">
                                     <h3 class="font-bold text-gray-900 truncate">${escapeHtml(owner.child_name || 'Ребенок')}</h3>
                                     <p class="text-xs text-gray-500 mt-0.5">${escapeHtml(ownerMeta(owner))}</p>
+                                    <p class="text-sm text-gray-700 mt-2">
+                                        <span class="font-semibold">Слово:</span> ${escapeHtml(group.word)}
+                                        ${group.targetSound ? '<span class="ml-2 inline-flex px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">звук ' + escapeHtml(group.targetSound) + '</span>' : ''}
+                                    </p>
                                 </div>
                             </div>
                         </div>
                         <div class="flex flex-wrap items-center gap-3 text-sm">
-                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${group.items.length} ${recordingWord(group.items.length)}</span>
+                            <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${group.items.length}/3 ${recordingWord(group.items.length)}</span>
                             <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 font-semibold">${escapeHtml(formatBytes(group.bytes))}</span>
                             <span class="text-gray-500">${escapeHtml(formatDate(lastDate))}</span>
                             <svg class="w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
@@ -230,7 +243,7 @@ function renderGroups(items) {
                     </div>
                 </button>
                 <div class="${isOpen ? '' : 'hidden'} px-5 pb-5 space-y-3">
-                    <div class="text-xs text-gray-400">Backend child_id: ${escapeHtml(owner.child_id)}</div>
+                    <div class="text-xs text-gray-400">Backend child_id: ${escapeHtml(owner.child_id)} · word_id: ${escapeHtml(owner.word_id)}</div>
                     ${group.items.map(renderRecording).join('')}
                 </div>
             </section>

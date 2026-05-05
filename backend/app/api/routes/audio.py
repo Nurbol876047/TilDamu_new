@@ -27,6 +27,7 @@ from app.services.audio_service import audio_service
 from app.services.speech_to_text_service import speech_to_text_service
 
 router = APIRouter(prefix="/audio", tags=["audio"])
+MAX_ATTEMPTS_PER_WORD = 3
 
 
 def audio_file_size(file_path: str) -> int:
@@ -34,6 +35,42 @@ def audio_file_size(file_path: str) -> int:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path.stat().st_size if path.is_file() else 0
+
+
+def _attempt_index(attempt_number: str) -> int | None:
+    value = attempt_number.strip().lower()
+    if value.startswith("x"):
+        value = value[1:]
+    return int(value) if value.isdigit() else None
+
+
+def next_word_attempt_number(db: Session, child_id: int, word_id: int) -> str:
+    existing_attempts = list(
+        db.scalars(
+            select(AudioRecord.attempt_number)
+            .where(
+                AudioRecord.child_id == child_id,
+                AudioRecord.word_id == word_id,
+            )
+            .order_by(AudioRecord.created_at.asc(), AudioRecord.id.asc())
+        )
+    )
+    if len(existing_attempts) >= MAX_ATTEMPTS_PER_WORD:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Для этого ребенка и слова уже сохранены 3 голосовые записи.",
+        )
+
+    used = {
+        index
+        for attempt in existing_attempts
+        if (index := _attempt_index(attempt)) is not None
+    }
+    for attempt_index in range(1, MAX_ATTEMPTS_PER_WORD + 1):
+        if attempt_index not in used:
+            return f"x{attempt_index}"
+
+    return f"x{len(existing_attempts) + 1}"
 
 
 @router.post(
@@ -55,6 +92,8 @@ def upload_audio(
     word = db.get(Word, word_id)
     if not word:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Word not found")
+
+    attempt_number = next_word_attempt_number(db, child.id, word.id)
 
     candidate_words = list(
         db.scalars(
@@ -162,6 +201,7 @@ def list_audio_history(
         condition = or_(
             Child.full_name.ilike(like),
             Child.parent_name.ilike(like),
+            Child.gender.ilike(like),
             Child.disorder_type.ilike(like),
             Word.text.ilike(like),
             Word.target_sound.ilike(like),
@@ -182,6 +222,7 @@ def list_audio_history(
             child_name=record.child.full_name,
             child_age=record.child.age,
             child_external_id=record.child.parent_name,
+            child_gender=record.child.gender,
             disorder_type=record.child.disorder_type,
             word_id=record.word_id,
             word=record.word.text,

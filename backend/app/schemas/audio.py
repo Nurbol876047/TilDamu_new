@@ -41,6 +41,7 @@ class AudioHistoryItem(BaseModel):
     child_name: str
     child_age: int
     child_external_id: str
+    child_gender: str | None = None
     disorder_type: str
     word_id: int
     word: str

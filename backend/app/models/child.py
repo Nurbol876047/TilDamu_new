@@ -15,6 +15,7 @@ class Child(Base):
     full_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     age: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     parent_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     disorder_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -26,4 +27,3 @@ class Child(Base):
         back_populates="child",
         cascade="all, delete-orphan",
     )
-

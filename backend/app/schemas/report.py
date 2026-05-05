@@ -8,6 +8,7 @@ class ReportChild(BaseModel):
     full_name: str
     age: int
     parent_name: str
+    gender: str | None = None
     disorder_type: str
 
 
@@ -63,4 +64,3 @@ class ChildGeneralReport(BaseModel):
     summary: str
     next_actions: list[str]
     generated_at: datetime
-

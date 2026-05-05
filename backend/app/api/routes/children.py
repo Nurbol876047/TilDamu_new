@@ -10,10 +10,11 @@ from app.schemas.child import ChildCreate, ChildRead
 router = APIRouter(prefix="/children", tags=["children"])
 
 
-def _clean_child_payload(payload: ChildCreate) -> dict[str, str | int]:
+def _clean_child_payload(payload: ChildCreate) -> dict[str, str | int | None]:
     data = payload.model_dump()
     data["full_name"] = data["full_name"].strip()
     data["parent_name"] = data["parent_name"].strip()
+    data["gender"] = data["gender"].strip() if data.get("gender") else None
     data["disorder_type"] = data["disorder_type"].strip()
     return data
 
@@ -39,6 +40,7 @@ def resolve_child(payload: ChildCreate, db: Session = Depends(get_db)) -> Child:
             Child.full_name == data["full_name"],
             Child.age == data["age"],
             Child.parent_name == data["parent_name"],
+            Child.gender == data["gender"],
             Child.disorder_type == data["disorder_type"],
         )
         .order_by(Child.created_at.desc())

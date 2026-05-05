@@ -141,6 +141,7 @@ require __DIR__ . '/../layouts/header.php';
                         <span id="phonemeBadge" class="px-4 py-1.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full uppercase tracking-widest border border-blue-200 shadow-sm"></span>
                     </div>
                     <p class="text-sm uppercase tracking-widest text-gray-500"><?= e(tr('dataset_page.repeat_word', 'Повторите слово')) ?></p>
+                    <p id="attemptText" class="text-sm font-bold text-blue-soft">Попытка 1 из 3</p>
                 </div>
                     <div class="flex items-center justify-center gap-3">
                         <h2 id="currentWord" class="text-5xl md:text-7xl font-bold text-gray-800 transition-all duration-300">мама</h2>
@@ -206,33 +207,18 @@ require __DIR__ . '/../layouts/header.php';
     </div>
 
     <div class="grid lg:grid-cols-2 gap-6">
-        <div class="border-0 shadow-xl bg-white/80 backdrop-blur-md rounded-3xl p-6 space-y-4 border border-white/20">
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <p class="text-xs font-bold uppercase tracking-widest text-blue-soft">Speaking history</p>
-                    <h2 class="text-2xl font-bold text-gray-800">История говорения</h2>
-                </div>
-                <span id="historyCount" class="px-3 py-1 rounded-full bg-blue-50 text-blue-soft text-sm font-bold">0</span>
-            </div>
-            <div id="historyEmpty" class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 text-center text-sm text-gray-500">
-                После первой записи здесь появятся слово, распознанный текст, точность, риск и путь сохраненного аудио.
-            </div>
+        <div id="historyPanel" class="hidden border-0 shadow-xl bg-white/80 backdrop-blur-md rounded-3xl p-6 space-y-4 border border-white/20">
+            <div id="historyEmpty" class="hidden"></div>
             <div id="historyList" class="space-y-3"></div>
         </div>
 
-        <div class="border-0 shadow-xl bg-white/80 backdrop-blur-md rounded-3xl p-6 space-y-4 border border-white/20">
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <p class="text-xs font-bold uppercase tracking-widest text-mint-dark">General report</p>
-                    <h2 class="text-2xl font-bold text-gray-800">Общий отчет</h2>
-                </div>
+        <div id="reportPanel" class="hidden border-0 shadow-xl bg-white/80 backdrop-blur-md rounded-3xl p-6 space-y-4 border border-white/20">
+            <div class="flex justify-end">
                 <a id="openReportLink" href="#" target="_blank" class="hidden px-4 py-2 rounded-full bg-mint/30 text-mint-dark text-sm font-bold hover:bg-mint/40 transition">
                     Открыть
                 </a>
             </div>
-            <div id="reportEmpty" class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 text-center text-sm text-gray-500">
-                Общий отчет обновится после записи. Он хранится в backend и собирается по всем попыткам ребенка.
-            </div>
+            <div id="reportEmpty" class="hidden"></div>
             <div id="reportBody" class="hidden space-y-4">
                 <p id="reportSummary" class="text-sm text-gray-600 leading-relaxed"></p>
                 <div class="grid grid-cols-2 gap-3">
@@ -303,7 +289,9 @@ const API = {
 
 const T = {$tJson};
 
+const MAX_ATTEMPTS_PER_WORD = 3;
 let wi = 0;
+let currentAttempt = 1;
 let rec = false;
 let busy = false;
 let sesOk = false;
@@ -336,14 +324,46 @@ function riskBadgeClass(risk) {
     return 'bg-mint/30 text-mint-dark';
 }
 
+function parseAttemptNumber(value) {
+    const normalized = String(value || '').trim().toLowerCase().replace(/^x/, '');
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function currentWordText() {
+    return W[wi] ? W[wi].ru : '';
+}
+
+function attemptCountForWord(wordText = currentWordText()) {
+    return sessionHistory.filter((item) => {
+        const analysis = item.analysis || {};
+        return String(analysis.expected_word || item.word || '').toLowerCase() === String(wordText || '').toLowerCase();
+    }).length;
+}
+
+function updateAttemptText() {
+    const el = $('attemptText');
+    if (!el) return;
+    el.textContent = 'Попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD;
+}
+
+function syncAttemptFromHistory() {
+    const nextAttempt = attemptCountForWord() + 1;
+    currentAttempt = Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, nextAttempt));
+    updateAttemptText();
+}
+
 function renderHistory() {
+    const panel = $('historyPanel');
     const list = $('historyList');
     const empty = $('historyEmpty');
     const count = $('historyCount');
-    if (!list || !empty || !count) return;
+    if (!list || !empty) return;
 
-    count.textContent = String(sessionHistory.length);
-    empty.classList.toggle('hidden', sessionHistory.length > 0);
+    const hasItems = sessionHistory.length > 0;
+    if (panel) panel.classList.toggle('hidden', !hasItems);
+    if (count) count.textContent = String(sessionHistory.length);
+    empty.classList.add('hidden');
 
     list.innerHTML = sessionHistory.map((item, index) => {
         const analysis = item.analysis || {};
@@ -378,13 +398,18 @@ function resetDatasetSession() {
     backendChildId = null;
     backendReportUrl = null;
     sessionHistory = [];
+    wi = 0;
+    currentAttempt = 1;
     renderHistory();
+    show();
 
     const link = $('openReportLink');
+    const panel = $('reportPanel');
     const empty = $('reportEmpty');
     const body = $('reportBody');
+    if (panel) panel.classList.add('hidden');
     if (link) link.classList.add('hidden');
-    if (empty) empty.classList.remove('hidden');
+    if (empty) empty.classList.add('hidden');
     if (body) body.classList.add('hidden');
 }
 
@@ -417,6 +442,7 @@ async function loadBackendHistory() {
             analysis: record.analysis_result
         }));
     renderHistory();
+    syncAttemptFromHistory();
 }
 
 async function refreshReport() {
@@ -426,10 +452,21 @@ async function refreshReport() {
 }
 
 function renderReport(report) {
+    const panel = $('reportPanel');
     const empty = $('reportEmpty');
     const body = $('reportBody');
     if (!empty || !body || !report) return;
 
+    if (Number(report.total_audio || 0) <= 0) {
+        if (panel) panel.classList.add('hidden');
+        empty.classList.add('hidden');
+        body.classList.add('hidden');
+        const link = $('openReportLink');
+        if (link) link.classList.add('hidden');
+        return;
+    }
+
+    if (panel) panel.classList.remove('hidden');
     empty.classList.add('hidden');
     body.classList.remove('hidden');
     $('reportSummary').textContent = report.summary || '';
@@ -453,6 +490,7 @@ function renderReport(report) {
 function show() {
     const w = W[wi];
     if (!w) return;
+    syncAttemptFromHistory();
 
     const main = LANG === 'kk' ? (w.kk || w.ru) : (LANG === 'en' ? (w.en || w.ru) : w.ru);
     const alt = LANG === 'ru' ? (w.kk || w.en) : (LANG === 'kk' ? w.ru : w.ru);
@@ -482,6 +520,7 @@ function show() {
 
     $('currentWordAlt').textContent = '(' + alt + ')';
     $('wordResult').classList.add('hidden');
+    updateAttemptText();
 }
 
 function stat(mode, title, hint) {
@@ -590,7 +629,8 @@ async function ses() {
         body: JSON.stringify({
             full_name: $('childName').value.trim() || 'Ребенок',
             age: childAgeGroup(),
-            parent_name: $('childId').value.trim() || $('childGender').value || 'Dataset',
+            parent_name: $('childId').value.trim() || 'Dataset',
+            gender: $('childGender').value || null,
             disorder_type: $('disorderType').value.trim() || 'дислалия'
         })
     });
@@ -643,6 +683,12 @@ async function handleRecord() {
     }
 
     await ses();
+    syncAttemptFromHistory();
+    if (attemptCountForWord() >= MAX_ATTEMPTS_PER_WORD) {
+        err('Для слова "' + currentWordText() + '" уже сохранены 3 записи этого ребенка. Перейдите к следующему слову.');
+        stat('ready', T.ready_status, 'Максимум для одного слова: 3 голосовые записи.');
+        return;
+    }
 
     try {
         ms = await navigator.mediaDevices.getUserMedia({
@@ -745,7 +791,7 @@ async function upload() {
         const fd = new FormData();
         fd.append('child_id', String(backendChildId));
         fd.append('word_id', String(backendWord.id));
-        fd.append('attempt_number', 'x' + Math.min(3, Math.max(1, wi + 1)));
+        fd.append('attempt_number', 'x' + Math.min(MAX_ATTEMPTS_PER_WORD, Math.max(1, currentAttempt)));
         fd.append('file', blob, 'speech.' + ext);
 
         const d = await apiJson(API.uploadAudio, { method: 'POST', body: fd });
@@ -762,11 +808,13 @@ async function upload() {
 async function done(a) {
     busy = false;
     const analysis = a.analysis || a;
+    const audio = a.audio || {};
+    const completedAttempt = parseAttemptNumber(audio.attempt_number) || currentAttempt;
     const sc = analysis.accuracy || analysis.score || analysis.overall_score || 0;
 
     sessionHistory.unshift({
         word: W[wi].ru,
-        audio: a.audio || {},
+        audio,
         analysis
     });
     renderHistory();
@@ -776,14 +824,22 @@ async function done(a) {
         console.warn('Report refresh failed', e);
     }
 
-    $('wordResultText').textContent = W[wi].ru + ': ' + sc + '/100'
+    $('wordResultText').textContent = W[wi].ru + ' · попытка ' + completedAttempt + '/' + MAX_ATTEMPTS_PER_WORD + ': ' + sc + '/100'
         + (analysis.risk_level ? ' · ' + analysis.risk_level : '');
     $('wordResult').classList.remove('hidden');
 
+    if (completedAttempt < MAX_ATTEMPTS_PER_WORD) {
+        currentAttempt = completedAttempt + 1;
+        updateAttemptText();
+        stat('ready', T.ready_status, 'Запишите это же слово еще раз: попытка ' + currentAttempt + ' из ' + MAX_ATTEMPTS_PER_WORD + '.');
+        return;
+    }
+
     if (wi < W.length - 1) {
-        stat('ready', T.ready_status, '...');
+        stat('ready', T.ready_status, 'Слово "' + W[wi].ru + '" записано 3 раза. Следующее слово...');
         setTimeout(() => {
             wi++;
+            currentAttempt = 1;
             show();
         }, 1200);
         return;
@@ -803,6 +859,7 @@ function skipWord() {
 
     if (wi < W.length - 1) {
         wi++;
+        currentAttempt = 1;
         show();
         return;
     }
